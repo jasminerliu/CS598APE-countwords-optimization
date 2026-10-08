@@ -54,7 +54,10 @@ table<(1<<16), (1<<19)> counts;
 
 int main() {
   std::ios::sync_with_stdio(false);
-  auto to_lower = [](unsigned char c) { return c | (-(c-'A' < 26) & '\x20'); };
+  // Fix bug: convert only ASCII uppercase letters
+  auto to_lower = [](unsigned char c) {
+    return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c;
+  };
   // Read stdin in 64 KiB blocks with fread instead of accessing each character through std::istreambuf_iterator
   char input[64 * 1024];
   std::size_t size;

@@ -2,7 +2,16 @@
 #include <cinttypes>
 #include <cassert>
 #include <iostream>
-#include <cstdio> 
+#include <cstdio>
+#include <cstdlib>
+#include <charconv>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+#include <omp.h>
 #include <string_view>
 
 
@@ -25,7 +34,7 @@ public:
     assert(std::size_t(back - words) < sizeof(words));
     *back++ = c, hash = hash * hash_next ^ c;
   }
-  void count_one() {
+  void count_one(int amount = 1) {
     if (back != tail) {
       std::string_view  key{tail, std::size_t(back-tail)};
       auto match = [key,this](range word) {
@@ -36,11 +45,20 @@ public:
       if (! bucket->count) {
         assert(++entries < hash_size/2);
         range word = {int(tail - words), std::uint16_t(back - tail)};
-        *bucket = {1, word }, tail = back;  // keep new word
-      } else ++bucket->count, back = tail;  // discard word
+        *bucket = {amount, word }, tail = back;  // keep new word
+      } else bucket->count += amount, back = tail;  // discard word
       hash = hash_init;
     }
   }
+  // Combine worker tables by adding each word's total count
+  void merge(table& other) {
+    for (auto& bucket : other.buckets) {
+      if (!bucket.count) continue;
+      for (char c : other.word_at(bucket.word)) push(c);
+      count_one(bucket.count);
+    }
+  }
+
   void dump(std::ostream& out) {
     auto end = std::partition(buckets, buckets + hash_size, [](auto& b){
       return b.count != 0; });
@@ -50,6 +68,18 @@ public:
       out << word_at(b.word) << ' ' << b.count << '\n'; });
   }
 };
+
+// Read env vars
+std::size_t setting(const char* name, std::size_t fallback) {
+  const char* value = std::getenv(name);
+  if (!value) return fallback;
+  std::string_view text(value);
+  std::size_t number = 0;
+  std::from_chars(text.data(), text.data() + text.size(), number);
+  return number;
+}
+
+
 table<(1<<16), (1<<19)> counts;
 
 int main() {
@@ -58,19 +88,46 @@ int main() {
   auto to_lower = [](unsigned char c) {
     return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c;
   };
-  // Read stdin in 64 KiB blocks with fread instead of accessing each character through std::istreambuf_iterator
-  char input[64 * 1024];
+  const auto num_threads = static_cast<std::size_t>(omp_get_max_threads());
+  const auto chunk_size = setting("CHUNK_SIZE", 1024 * 1024);
+
+  // Read entire file into memory
+  std::vector<char> input;
+  char block[64 * 1024];
   std::size_t size;
-  while ((size = std::fread(input, 1, sizeof(input), stdin)) != 0) {
-    // Process bytes directly in memory, preserving partial words between blocks
-    for (std::size_t i = 0; i < size; ++i) {
-      const char c = input[i];
-      if (c <= ' ') {
-        counts.count_one();
-      } else counts.push(to_lower(c));
-    }
+  while ((size = std::fread(block, 1, sizeof(block), stdin)) != 0)
+    input.insert(input.end(), block, block + size);
+  if (std::ferror(stdin)) return 1;
+
+  // Extend chunk to next separator so word is never split between chunks
+  std::vector<std::pair<std::size_t, std::size_t>> chunks;
+  for (std::size_t begin = 0; begin < input.size();) {
+    auto end = begin + std::min(chunk_size, input.size() - begin);
+    while (end < input.size() && static_cast<unsigned char>(input[end]) > ' ') ++end;
+    chunks.emplace_back(begin, end);
+    begin = end;
   }
 
-  counts.count_one(); 
+  using counts_table = table<(1<<16), (1<<19)>;
+  const int workers = static_cast<int>(std::min(num_threads, chunks.size()));
+
+  std::vector<std::unique_ptr<counts_table>> local;
+  for (int i = 0; i < workers; ++i) local.push_back(std::make_unique<counts_table>());
+
+  // Workers count words in their own tables
+  #pragma omp parallel for num_threads(std::max(1, workers)) schedule(dynamic, 1) if(workers > 1)
+  for (std::size_t chunk = 0; chunk < chunks.size(); ++chunk) {
+    auto& local_counts = *local[omp_get_thread_num()];
+    auto [begin, end] = chunks[chunk];
+    for (std::size_t i = begin; i < end; ++i) {
+      const char c = input[i];
+      if (static_cast<unsigned char>(c) <= ' ') {
+        local_counts.count_one();
+      } else local_counts.push(to_lower(c));
+    }
+    local_counts.count_one();
+  }
+
+  for (auto& local_counts : local) counts.merge(*local_counts);
   counts.dump(std::cout);
 }

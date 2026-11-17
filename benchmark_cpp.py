@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import string
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -111,12 +112,21 @@ def test_run(cmdline, tests):
     return passed, failures
 
 
+def openmp_flags():
+    if sys.platform == 'darwin':
+        prefix = subprocess.check_output(['brew', '--prefix', 'libomp'], text=True).strip()
+        return ['-Xpreprocessor', '-fopenmp', '-I' + prefix + '/include',
+                '-L' + prefix + '/lib', '-Wl,-rpath,' + prefix + '/lib', '-lomp']
+    return ['-fopenmp']
+
+
 def build_targets(directory):
     targets = []
     for label, filename, notes in programs:
         binary = Path(directory) / Path(filename).stem
+        flags = openmp_flags() if filename == 'optimized-buffered.cpp' else []
         subprocess.run([COMPILER, '-O2', '-DNDEBUG', '-std=c++17', str(ROOT / filename),
-                        '-o', str(binary)], check=True)
+                        '-o', str(binary)] + flags, check=True)
         targets.append((label, [str(binary)], notes))
     return targets
 

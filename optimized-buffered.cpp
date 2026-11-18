@@ -13,6 +13,7 @@
 #include <vector>
 #include <omp.h>
 #include <string_view>
+#include <sys/stat.h>
 
 
 template <std::size_t hash_size, std::size_t words_buf_size>
@@ -91,8 +92,16 @@ int main() {
   const auto num_threads = static_cast<std::size_t>(omp_get_max_threads());
   const auto chunk_size = setting("CHUNK_SIZE", 1024 * 1024);
 
-  // Read entire file into memory
+  // Read entire file into preallocated buffer, avoiding memory copies
   std::vector<char> input;
+  struct stat info;
+  if (fstat(fileno(stdin), &info) == 0 && S_ISREG(info.st_mode)) {
+    const auto position = ftello(stdin);
+    if (position >= 0 && info.st_size > position) {
+      const auto remaining = static_cast<std::uintmax_t>(info.st_size - position);
+      if (remaining <= input.max_size()) input.reserve(static_cast<std::size_t>(remaining));
+    }
+  }
   char block[64 * 1024];
   std::size_t size;
   while ((size = std::fread(block, 1, sizeof(block), stdin)) != 0)

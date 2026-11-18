@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-# Benchmark thread/chunk configurations and output results table as Markdown.
-# Compiles the latest source before timing; requires kjvbible_x10.txt.
-
 from benchmark_cpp import COMPILER, openmp_flags
 
 import os

@@ -46,9 +46,9 @@ def cases():
 
     # Tests for 16-byte SIMD block boundaries
     simd = [
-        ('length-15', b'67 67 67 67 67 6'),
-        ('length-16', b'67 67 67 67 67 67'),
-        ('length-17', b'67 67 67 67 67 67 '),
+        ('length-15', b'67 67 67 67 67 '),
+        ('length-16', b'67 67 67 67 67 6'),
+        ('length-17', b'67 67 67 67 67 67'),
         ('length-33', b'67 67 67 67 67 67 67 67 67 67 67 '),
         ('crossing-word', b' ' * 13 + b'sixseven sixseven'),
     ]
@@ -118,9 +118,7 @@ def main():
     flags = openmp_flags()
     for program in PROGRAMS:
         binary = './' + program
-        subprocess.run([COMPILER, '-O2', '-DNDEBUG', '-std=c++17',
-                        '-fno-vectorize', '-fno-slp-vectorize',
-                        program + '.cpp', '-o', binary] + flags, check=True)
+        subprocess.run([COMPILER, '-O2', '-DNDEBUG', '-std=c++17', '-fno-vectorize', '-fno-slp-vectorize', program + '.cpp', '-o', binary] + flags, check=True)
 
         all_passed = True
         for threads in THREAD_COUNTS:

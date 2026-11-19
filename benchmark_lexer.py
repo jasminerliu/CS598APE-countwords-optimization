@@ -26,7 +26,7 @@ PATTERNS = [(kind, re.compile(pattern)) for kind, pattern in RULES]
 
 NUM_RUNS = 5
 INPUT_FILENAME = 'kjvbible_x10.txt'
-PROGRAM = './simple-lexer'
+PROGRAMS = ['simple-lexer', 'optimized-lexer']
 THREAD_COUNTS = [1, 2, 4, 8]
 CHUNK_SIZE = 2 ** 16  # 64 KiB
 
@@ -43,6 +43,16 @@ def cases():
         ('non-ASCII', '67\u00e9'.encode() + b' \x00\x7f'),
     ]
     tests = [('small/' + name, data) for name, data in small]
+
+    # Tests for 16-byte SIMD block boundaries
+    simd = [
+        ('length-15', b'67 67 67 67 67 6'),
+        ('length-16', b'67 67 67 67 67 67'),
+        ('length-17', b'67 67 67 67 67 67 '),
+        ('length-33', b'67 67 67 67 67 67 67 67 67 67 67 '),
+        ('crossing-word', b' ' * 13 + b'sixseven sixseven'),
+    ]
+    tests.extend(('simd/' + name, data) for name, data in simd)
 
     # Tests for tokens across 64 KiB chunk boundaries.
     boundary = CHUNK_SIZE
@@ -103,31 +113,41 @@ def time_run(binary, input_path, threads, chunk_size):
 
 
 def main():
-    subprocess.run([COMPILER, '-O2', '-DNDEBUG', '-std=c++17',
-                    '-fno-vectorize', '-fno-slp-vectorize',
-                    'simple-lexer.cpp', '-o', PROGRAM] + openmp_flags(), check=True)
-
-    for threads in THREAD_COUNTS:
-        passed, total = verify(PROGRAM, threads, CHUNK_SIZE)
-        print(f'PASS {passed}/{total} tests '
-              f'({threads} threads)', flush=True)
-    if passed != total:
-        raise SystemExit(1)
-
     times = []
-    for threads in THREAD_COUNTS:
-        elapsed, output = time_run(PROGRAM, ROOT / INPUT_FILENAME, threads, CHUNK_SIZE)
-        times.append((threads, CHUNK_SIZE, elapsed))
-    times.sort(key=lambda x: x[2])
+    expected_output = None
+    flags = openmp_flags()
+    for program in PROGRAMS:
+        binary = './' + program
+        subprocess.run([COMPILER, '-O2', '-DNDEBUG', '-std=c++17',
+                        '-fno-vectorize', '-fno-slp-vectorize',
+                        program + '.cpp', '-o', binary] + flags, check=True)
+
+        all_passed = True
+        for threads in THREAD_COUNTS:
+            passed, total = verify(binary, threads, CHUNK_SIZE)
+            print(f'{program}: PASS {passed}/{total} tests '
+                  f'({threads} threads)', flush=True)
+            all_passed = all_passed and passed == total
+        if not all_passed:
+            raise SystemExit(1)
+
+        for threads in THREAD_COUNTS:
+            elapsed, output = time_run(binary, ROOT / INPUT_FILENAME, threads, CHUNK_SIZE)
+            if expected_output is None:
+                expected_output = output
+            if output != expected_output:
+                raise ValueError(f'{program} ({threads} threads): lexer outputs differ')
+            times.append((program, threads, CHUNK_SIZE, elapsed))
+    times.sort(key=lambda x: x[3])
 
     print('\nVERIFIED OUTPUT')
-    print(output.decode(), end='')
+    print(expected_output.decode(), end='')
 
     print()
-    print('Threads | Chunk bytes | Seconds')
-    print('------- | ----------- | --------')
-    for threads, chunk_size, elapsed in times:
-        print('{:7} | {:11} | {:.6f}'.format(threads, chunk_size, elapsed))
+    print('Program         | Threads | Chunk bytes | Seconds')
+    print('--------------- | ------- | ----------- | --------')
+    for program, threads, chunk_size, elapsed in times:
+        print('{:<15} | {:7} | {:11} | {:.6f}'.format(program, threads, chunk_size, elapsed))
 
 
 if __name__ == '__main__':

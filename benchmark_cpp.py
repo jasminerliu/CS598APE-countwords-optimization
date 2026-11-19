@@ -39,16 +39,6 @@ def cases():
     ]
     tests = [('small/' + name, data) for name, data in small]
 
-    # Tests for 16-byte SIMD block boundaries
-    simd = [
-        ('length-15', b'67 67 67 67 67 6'),
-        ('length-16', b'67 67 67 67 67 67'),
-        ('length-17', b'67 67 67 67 67 67 '),
-        ('length-33', b'67 67 67 67 67 67 67 67 67 67 67 '),
-        ('crossing-word', b' ' * 13 + b'sixseven sixseven'),
-    ]
-    tests.extend(('simd/' + name, data) for name, data in simd)
-
     # Tests for word counting across chunk boundaries
     for boundary in CHUNK_SIZES:
         boundary_cases = [

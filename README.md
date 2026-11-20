@@ -1,4 +1,45 @@
+# CS598APE Project: Parallel and SIMD Optimization of Countwords
 
+Jasmine Liu and Sherry Long. This fork adds a parallel Countwords program and a scalar and ARM NEON text lexer. Everything below the "Original README" line is Ben Hoyt's original README.
+
+## Hardware and software requirements
+
+- An ARM64 Mac (Apple Silicon). We tested on an Apple M1 with 8 GB of memory. `optimized-lexer.cpp` uses ARM NEON and only builds on ARM64.
+- macOS with Apple Clang (we used version 17), Homebrew `libomp` (`brew install libomp`), and Python 3.
+
+## Our files
+
+| File | Description |
+|---|---|
+| `optimized.cpp` | Original optimized C++ Countwords (unchanged baseline) |
+| `optimized-buffered.cpp` | Our parallel Countwords (OpenMP, per-thread hash tables) |
+| `simple-lexer.cpp` | Our scalar lexer (counts whitespace, word, number, punctuation, and other tokens) |
+| `optimized-lexer.cpp` | Our NEON lexer |
+| `benchmark_cpp.py` | Countwords correctness tests (20 cases) |
+| `benchmark_parallel.py` | Countwords timing across thread counts and chunk sizes |
+| `benchmark_lexer.py` | Lexer correctness tests (18 cases) and timing |
+| `kjvbible.txt` | Input text (King James Bible) |
+
+## How to run
+
+```bash
+# Create the 43 MB benchmark input
+python3 -c "from pathlib import Path; Path('kjvbible_x10.txt').write_bytes(Path('kjvbible.txt').read_bytes()*10)"
+
+python3 benchmark_cpp.py       # Countwords tests
+python3 benchmark_parallel.py  # Countwords timing
+python3 benchmark_lexer.py     # lexer tests and timing
+```
+
+Each script compiles the code before running it. To run a program by hand:
+
+```bash
+OMP_NUM_THREADS=8 CHUNK_SIZE=65536 ./optimized-lexer < kjvbible_x10.txt
+```
+
+---
+
+# Original README
 Playing with counting word frequencies (and the performance thereof) in various languages. See the full article for context and background: [https://benhoyt.com/writings/count-words/](https://benhoyt.com/writings/count-words/)
 
 
